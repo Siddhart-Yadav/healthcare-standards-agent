@@ -223,9 +223,6 @@ Both paths need the same MongoDB queries and Voyage AI embedding logic. Extracti
 ### Why Voyage AI via Atlas endpoint?
 Atlas-generated API keys (`al-` prefix) authenticate against `ai.mongodb.com` instead of `api.voyageai.com`. This is MongoDB's recommended integration path and keeps everything within the Atlas ecosystem.
 
-### Why Gemini for Path B?
-The agent uses Google Gemini 2.5 Flash which provides a free tier with tool-calling support, keeping the total project cost at $0.
-
 ### Chunking strategy
 The NIAHO PDF has clearly structured chapter IDs (QM.1, IC.3, LS.2, etc.) at the start of each section. We split on these using regex, deduplicate (keeping the longest version of each chapter), and clean up repeated page headers. This produces 183 semantically meaningful chunks.
 
