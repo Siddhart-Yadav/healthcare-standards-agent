@@ -153,66 +153,108 @@ async function extractTextFromPdf(filePath: string): Promise<string> {
 // ─────────────────────────────────────────────
 
 /**
+ * VALID_PREFIXES — The set of real chapter prefixes in the NIAHO PDF.
+ *
+ * WHY: The PDF has "SR.1", "SR.2", etc. which are SUB-REQUIREMENTS inside
+ * chapters, not actual chapter headings. Our old regex matched these (653 times!)
+ * and incorrectly split chapters into tiny fragments.
+ *
+ * By only matching known prefixes, we avoid splitting on sub-requirements.
+ * "SR" is excluded because SR.X entries are sub-requirements that appear
+ * inside every chapter (e.g., IC.3 contains SR.1, SR.2, etc.).
+ */
+const VALID_PREFIXES = new Set([
+  "QM", "GB", "CE", "MS", "NS", "SM", "MM", "SS", "AS", "OB",
+  "LS", "RC", "MI", "NM", "RS", "ES", "OS", "DS", "PR", "IC",
+  "MR", "DC", "UR", "PE", "PC", "RR", "FS", "RN", "SB", "TD",
+  "TO",
+]);
+
+/**
+ * skipTableOfContents()
+ *
+ * WHY: The TOC (pages 3-8) contains entries like:
+ *   "IC.3 LEADERSHIP RESPONSIBILITIES ..................... 271"
+ * These match our chapter regex but contain no real content.
+ * Our old code kept these short TOC entries instead of the real chapters.
+ *
+ * HOW: TOC lines contain long runs of dots ("...........").
+ * We find the last such line and skip everything before it.
+ */
+function skipTableOfContents(fullText: string): string {
+  const lines = fullText.split("\n");
+  let lastTocLine = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    // TOC lines have dotted leaders like "QM.1 RESPONSIBILITY ........... 13"
+    if (lines[i].includes("...........")) {
+      lastTocLine = i;
+    }
+  }
+
+  if (lastTocLine === -1) return fullText;
+
+  console.log(`   Skipping TOC (${lastTocLine + 1} lines)`);
+  return lines.slice(lastTocLine + 1).join("\n");
+}
+
+/**
  * chunkByChapter()
  *
  * HOW IT WORKS:
- * The NIAHO PDF has chapters like "QM.1 RESPONSIBILITY AND ACCOUNTABILITY".
- * We use a regex to find these chapter headings and split the text at each one.
+ * 1. Skip the Table of Contents (dotted-line entries)
+ * 2. Find chapter headings using ONLY valid prefixes (QM, IC, PE, etc.)
+ *    — excludes SR.X sub-requirements that appear inside chapters
+ * 3. Extract text between consecutive chapter headings
+ * 4. Clean up and deduplicate
  *
- * The regex: /^([A-Z]{2,4})\.(\d+)\s/gm
- *   ^           = start of a line
- *   ([A-Z]{2,4}) = 2-4 uppercase letters (QM, GB, IC, etc.) — captured as group 1
- *   \.           = literal dot
- *   (\d+)        = one or more digits (1, 2, 10, etc.) — captured as group 2
- *   \s           = followed by whitespace
- *   g            = find ALL matches (not just the first)
- *   m            = multiline mode (^ matches start of each line, not just start of string)
- *
- * ALGORITHM:
- * 1. Find all chapter heading positions in the text
- * 2. For each heading, extract everything from that heading to the next heading
- * 3. That extracted text = one chunk
- * 4. Clean up the text (remove page headers/footers)
+ * The regex: /^(PREFIX)\.(\d+)\s+[A-Z]/gm
+ *   ^              = start of a line
+ *   (PREFIX)       = one of our valid chapter prefixes (QM, IC, PE, etc.)
+ *   \.             = literal dot
+ *   (\d+)          = chapter number
+ *   \s+[A-Z]       = whitespace followed by uppercase letter (the title)
+ *                    This ensures we match "QM.1 RESPONSIBILITY" but NOT
+ *                    "QM.1 (§ 482.21)" which is a cross-reference mid-sentence
  */
 function chunkByChapter(fullText: string): RawChunk[] {
   console.log("\nChunking text by chapter...");
 
+  // Step 1: Skip the Table of Contents
+  const contentText = skipTableOfContents(fullText);
+
   const chunks: RawChunk[] = [];
 
-  // This regex matches chapter headings like "QM.1 ", "IC.3 ", "MS.10 "
-  const chapterRegex = /^([A-Z]{2,4})\.(\d+)\s/gm;
+  // Step 2: Build regex that only matches valid chapter prefixes
+  // We join all prefixes with | to create: (QM|GB|CE|MS|NS|SM|...)
+  const prefixPattern = Array.from(VALID_PREFIXES).join("|");
+  const chapterRegex = new RegExp(
+    `^(${prefixPattern})\\.(\\d+)\\s+[A-Z]`,
+    "gm"
+  );
 
-  // Step 1: Find all chapter heading positions
-  // matchAll returns an iterator of matches, each with .index (position in string)
-  const matches = [...fullText.matchAll(chapterRegex)];
+  // Find all chapter heading positions
+  const matches = [...contentText.matchAll(chapterRegex)];
 
-  console.log(`   Found ${matches.length} chapter headings`);
+  console.log(`   Found ${matches.length} chapter headings (after skipping TOC and SR.X)`);
 
-  // Step 2: Loop through matches and extract text between consecutive headings
+  // Step 3: Extract text between consecutive chapter headings
   for (let i = 0; i < matches.length; i++) {
     const match = matches[i];
-    const prefix = match[1];        // e.g. "QM"
-    const number = match[2];        // e.g. "1"
-    const chapter = `${prefix}.${number}`;  // e.g. "QM.1"
+    const prefix = match[1];
+    const number = match[2];
+    const chapter = `${prefix}.${number}`;
 
-    // Where does this chapter's text start?
     const startIndex = match.index!;
-
-    // Where does it end? At the next chapter heading, or end of document
     const endIndex = i + 1 < matches.length
       ? matches[i + 1].index!
-      : fullText.length;
+      : contentText.length;
 
-    // Extract the raw text for this chapter
-    let chunkText = fullText.slice(startIndex, endIndex);
-
-    // Clean up: remove the repeating page header that appears on every page
+    let chunkText = contentText.slice(startIndex, endIndex);
     chunkText = cleanText(chunkText);
 
-    // Skip very short chunks (probably false matches or empty sections)
     if (chunkText.length < 50) continue;
 
-    // Look up the human-readable section name
     const section = SECTION_MAP[prefix] || prefix;
 
     chunks.push({
@@ -222,9 +264,7 @@ function chunkByChapter(fullText: string): RawChunk[] {
     });
   }
 
-  // Deduplicate: the same chapter ID might appear multiple times in the PDF
-  // (e.g. in the table of contents AND in the actual content)
-  // We keep the LONGEST version (which is the actual content, not the TOC entry)
+  // Step 4: Deduplicate — keep the longest version of each chapter
   const deduped = deduplicateChunks(chunks);
 
   console.log(`   After dedup: ${deduped.length} unique chapters`);

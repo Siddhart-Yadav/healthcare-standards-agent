@@ -86,7 +86,7 @@ export async function closeConnection(): Promise<void> {
  * Voyage AI optimizes the embedding differently for each use case.
  * This asymmetry improves search relevance.
  */
-async function generateQueryEmbedding(query: string): Promise<number[]> {
+async function generateQueryEmbedding(query: string, retries = 3): Promise<number[]> {
   const response = await fetch(CONFIG.voyageApiUrl, {
     method: "POST",
     headers: {
@@ -99,6 +99,13 @@ async function generateQueryEmbedding(query: string): Promise<number[]> {
       input_type: "query",  // "query" for search questions
     }),
   });
+
+  // If rate limited, wait and retry
+  if (response.status === 429 && retries > 0) {
+    console.log(`   Rate limited, waiting 60s... (${retries} retries left)`);
+    await new Promise((r) => setTimeout(r, 60000));
+    return generateQueryEmbedding(query, retries - 1);
+  }
 
   if (!response.ok) {
     const errorBody = await response.text();

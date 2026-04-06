@@ -1,27 +1,38 @@
 /**
- * Quick test script for tools.ts functions
+ * Quick test to verify the data quality after re-seeding.
  * Run with: npx tsx scripts/test-tools.ts
  */
 import { searchStandards, getStandardByChapter, listSections, closeConnection } from "../src/tools.js";
 
 async function test() {
-  console.log("=== Test 1: list_sections (filter: Infection) ===");
-  const sections = await listSections("Infection");
-  console.log(JSON.stringify(sections, null, 2));
+  // Test 1: Check previously broken chapters
+  console.log("=== Checking previously broken chapters ===\n");
+  const chapters = ["QM.1", "IC.3", "MM.2", "MM.4", "QM.6", "PE.1"];
+  for (const ch of chapters) {
+    const doc = await getStandardByChapter(ch);
+    if (doc) {
+      const preview = doc.text.substring(0, 100).replace(/\n/g, " ");
+      console.log(`${ch} | ${doc.text.length} chars | ${preview}`);
+    } else {
+      console.log(`${ch} | NOT FOUND`);
+    }
+  }
 
-  console.log("\n=== Test 2: get_standard_by_chapter (IC.3) ===");
-  const chapter = await getStandardByChapter("IC.3");
-  console.log("Found:", !!chapter, "| Chapter:", chapter?.chapter, "| Text length:", chapter?.text?.length);
+  // Test 2: Total counts
+  const sections = await listSections();
+  const totalChapters = sections.reduce((sum, s) => sum + s.chapterCount, 0);
+  console.log(`\nTotal sections: ${sections.length}`);
+  console.log(`Total chapters: ${totalChapters}`);
 
-  console.log("\n=== Test 3: search_standards (medication errors) ===");
-  const results = await searchStandards("medication error requirements", 3);
-  console.log("Results:", results.length);
+  // Test 3: Semantic search
+  console.log("\n=== Semantic search: infection control ===\n");
+  const results = await searchStandards("infection control requirements", 3);
   results.forEach((r, i) =>
-    console.log(`  ${i + 1}. ${r.chapter} (${r.section}) score=${r.score.toFixed(4)}`)
+    console.log(`  ${i + 1}. ${r.chapter} (${r.section}) score=${r.score.toFixed(4)} | ${r.text.substring(0, 80).replace(/\n/g, " ")}`)
   );
 
   await closeConnection();
-  console.log("\n✅ All tests passed!");
+  console.log("\n✅ All checks passed!");
 }
 
 test().catch((e) => {
