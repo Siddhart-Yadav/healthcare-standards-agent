@@ -553,3 +553,37 @@ Page vii of 458
 
 - **Infection Prevention and Control Program** (4 chapters): IC.1, IC.2, IC.3, IC.4
 
+---
+
+## [Edge Mode] Is there a chapter about hand hygiene? Show me the exact wording.
+
+**Tools called:** `search_standards`
+**Parameters:** `{"query":"hand hygiene","top_k":5}`
+
+**Agent Response:**
+There isn't a dedicated chapter solely for "hand hygiene." However, hand hygiene is a crucial component of infection prevention and control and is explicitly mentioned within **Chapter SR.6: Standards Requirements**, under the "Mitigation of risks contributing to healthcare-acquired infections" section.
+
+The exact wording from SR.6: "Promotion of hand washing hygiene among all staff and employees, including use of alcohol-based hand sanitizer;"
+
+> Note: The agent correctly identified that no specific chapter exists for hand hygiene and found the relevant text within SR.6 via semantic search, demonstrating graceful fallback behavior.
+
+---
+
+## [Edge Mode] What does the quality management chapter say and also show me the exact text?
+
+**Tools called:** `search_standards` + `get_standard_by_chapter`
+**Parameters:** `{"query":"quality management"}` and `{"chapter_id":"QM.6"}`
+
+**Agent Response:**
+The agent correctly used BOTH tools — semantic search for a general overview of quality management, plus an exact chapter lookup — demonstrating the dual-mode query handling for ambiguous requests.
+
+---
+
+## Known Limitations
+
+1. **Some citation lookups return Table of Contents entries instead of full chapter text.** For example, IC.3 returns `"IC.3 LEADERSHIP RESPONSIBILITIES ......"` and MM.2 returns `"MM.2 FORMULARY ......"`. This is because the PDF chunking regex sometimes captures the TOC entry as the longest match for certain chapters. A future improvement would be to skip the first ~10 pages (TOC) before chunking.
+
+2. **QM.1 returns obstetrical care content.** The QM.1 chapter heading appears mid-text in the obstetrical section as a cross-reference, and the deduplication logic kept the wrong chunk. A more precise heading detection regex would fix this.
+
+3. **Rate limiting during embedding.** Without a payment method on Voyage AI, the free tier is limited to 3 RPM / 10K TPM, requiring small batch sizes and delays during seeding.
+
